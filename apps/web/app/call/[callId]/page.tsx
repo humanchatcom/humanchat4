@@ -47,6 +47,9 @@ export default function CallPage() {
           participantName: data.participantName || 'Unknown',
           participantAvatar: data.participantAvatar,
           returnUrl: targetReturnUrl,
+          roomName: data.roomName,
+          liveKitToken: data.liveKitToken,
+          isHost: data.isHost ?? false,
         });
         
         // Redirect to returnUrl immediately - GlobalCallRoom will show the call UI

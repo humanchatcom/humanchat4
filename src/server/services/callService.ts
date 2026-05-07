@@ -49,7 +49,8 @@ export async function startCall(
       const token = await generateLiveKitToken({
         roomName: call.livekit_room_name!,
         userId: callerUserId,
-        userName: 'Caller', // Will be enriched below
+        userName: 'Caller',
+        callId: call.id,
       });
 
       // Fetch participants
@@ -171,6 +172,7 @@ export async function startCall(
     roomName,
     userId: callerUserId,
     userName: callerName,
+    callId,
     metadata: JSON.stringify({ role: 'caller', callId }),
   });
 
@@ -258,6 +260,7 @@ export async function acceptCall(
     roomName: call.livekit_room_name!,
     userId: calleeUserId,
     userName: call.callee_name || 'User',
+    callId,
     metadata: JSON.stringify({ role: 'callee', callId }),
   });
 

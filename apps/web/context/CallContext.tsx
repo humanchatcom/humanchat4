@@ -19,6 +19,9 @@ interface CallContextValue {
   participantName: string | null;
   participantAvatar: string | null;
   returnUrl: string | null;
+  roomName: string | null;
+  liveKitToken: string | null;
+  isHost: boolean;
   
   // Call state
   status: CallStatus;
@@ -53,6 +56,9 @@ interface StartCallParams {
   participantName: string;
   participantAvatar?: string;
   returnUrl: string;
+  roomName: string;
+  liveKitToken: string;
+  isHost?: boolean;
 }
 
 const CallContext = createContext<CallContextValue | undefined>(undefined);
@@ -64,6 +70,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const [participantName, setParticipantName] = useState<string | null>(null);
   const [participantAvatar, setParticipantAvatar] = useState<string | null>(null);
   const [returnUrl, setReturnUrl] = useState<string | null>(null);
+  const [roomName, setRoomName] = useState<string | null>(null);
+  const [liveKitToken, setLiveKitToken] = useState<string | null>(null);
+  const [isHost, setIsHost] = useState(false);
   
   const [status, setStatus] = useState<CallStatus>('disconnected');
   const [isMinimized, setIsMinimized] = useState(false);
@@ -87,8 +96,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     setParticipantName(params.participantName);
     setParticipantAvatar(params.participantAvatar || null);
     setReturnUrl(params.returnUrl);
+    setRoomName(params.roomName);
+    setLiveKitToken(params.liveKitToken);
+    setIsHost(params.isHost ?? false);
     setStatus('connecting');
-    setConnectedAt(null); // Will be set when actually connected
+    setConnectedAt(null);
     setIsMinimized(false);
   }, []);
 
@@ -99,6 +111,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     setParticipantName(null);
     setParticipantAvatar(null);
     setReturnUrl(null);
+    setRoomName(null);
+    setLiveKitToken(null);
+    setIsHost(false);
     setStatus('disconnected');
     setConnectedAt(null);
     setIsMinimized(false);
@@ -171,6 +186,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     participantName,
     participantAvatar,
     returnUrl,
+    roomName,
+    liveKitToken,
+    isHost,
     status,
     isMinimized,
     connectedAt,

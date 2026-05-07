@@ -111,7 +111,7 @@ export default function CallShell({
   const router = useRouter();
   const { updateStatus, endCall, conversationId, updateConnectedAt, callId } = useCallContext();
 
-  const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://humanchat-8w7n96ci.livekit.cloud';
+  const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
 
   const handleDisconnected = useCallback(async () => {
     console.log('[CallShell] Room disconnected');

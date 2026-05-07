@@ -1,184 +1,88 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCallContext } from '../context/CallContext';
-import { useAuthIdentity } from '../hooks/useAuthIdentity';
-import { getCall } from '../services/callApi';
 import CallShell from './CallShell';
 import AudioCallPage from './AudioCallPage';
 import VideoCallPage from './VideoCallPage';
 import { useCallSounds } from '../hooks/useCallSounds';
 
 /**
- * GlobalCallRoom - Mounts LiveKit room globally when a call is active
- * This keeps the connection alive even when user navigates away from /call/[callId]
+ * GlobalCallRoom - Mounts LiveKit room globally when a call is active.
+ *
+ * All call data (roomName, liveKitToken, isHost, etc.) is read from
+ * CallContext — set by the /call/[callId] page. This avoids a redundant
+ * getCall() fetch (which would generate a second token with a different
+ * identity) and eliminates the duplicate WebSocket that previously existed
+ * here.  Active-call event handling (CALL_DECLINED / CALL_ENDED /
+ * CALL_TIMEOUT) now lives in CallNotificationListener.
  */
 export default function GlobalCallRoom() {
-  const { callId, callType, isMinimized, endCall: endCallContext, status } = useCallContext();
-  const { identity } = useAuthIdentity();
-  const [callData, setCallData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const {
+    callId,
+    callType,
+    isMinimized,
+    endCall: endCallContext,
+    status,
+    roomName,
+    liveKitToken,
+    isHost,
+    conversationId,
+  } = useCallContext();
+
   const router = useRouter();
-  const { play: playSound, stop: stopSound, stopAll } = useCallSounds();
+  const { play: playSound, stop: stopSound } = useCallSounds();
 
-  // Load call data when callId changes
+  // ── Outgoing ring / call-end sounds ──────────────────────────────
   useEffect(() => {
-    if (!callId) {
-      setCallData(null);
-      return;
-    }
+    if (!callId) return;
 
-    async function loadCall() {
-      if (!callId) return;
-      setLoading(true);
-      try {
-        const data = await getCall(callId);
-        
-        // If call is already ended, clear context
-        if (data.status === 'ended' || data.status === 'declined' || data.status === 'missed') {
-          endCallContext();
-          return;
-        }
-        
-        setCallData(data);
-      } catch (err) {
-        console.error('[GlobalCallRoom] Failed to load call:', err);
-        endCallContext();
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadCall();
-  }, [callId, endCallContext]);
-
-  // Play outgoing ring sound when call is connecting (only for caller)
-  useEffect(() => {
-    if (!callId || !callData) return;
-
-    // Only play outgoing ring if current user is the caller (isHost)
-    const isCaller = callData.isHost;
-
-    // Play outgoing ring when status is 'connecting' AND user is the caller
-    if (status === 'connecting' && isCaller) {
-      console.log('[GlobalCallRoom] 🔊 Playing outgoing ring for caller...');
+    // Play outgoing ring when the caller is waiting for the other party
+    if (status === 'connecting' && isHost) {
+      console.log('[GlobalCallRoom] 🔊 Playing outgoing ring for caller');
       playSound('outgoing-ring');
     }
 
-    // Stop outgoing ring when call connects or ends
+    // Stop ring when the call resolves
     if (status === 'connected' || status === 'disconnected' || status === 'failed') {
-      console.log('[GlobalCallRoom] 🛑 Stopping outgoing ring');
       stopSound('outgoing-ring');
-      
-      // Play call-end sound when call disconnects or fails
+
       if (status === 'disconnected' || status === 'failed') {
         console.log('[GlobalCallRoom] 🔊 Playing call-end sound');
         playSound('call-end');
       }
     }
 
-    // Cleanup: stop outgoing ring when component unmounts
     return () => {
       stopSound('outgoing-ring');
     };
-  }, [callId, callData, status, playSound, stopSound]);
+  }, [callId, status, isHost, playSound, stopSound]);
 
-  // Listen for call events via WebSocket
-  useEffect(() => {
-    if (!callId || !identity?.id) return;
-
-    const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001';
-    const wsUrl = `${WS_BASE_URL.replace(/\/$/, '')}/notifications/${identity.id}`;
-    const ws = new WebSocket(wsUrl);
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-
-        // If call was declined or ended, handle it
-        if (message.callId === callId && 
-            (message.type === 'CALL_DECLINED' || message.type === 'CALL_ENDED' || message.type === 'CALL_TIMEOUT')) {
-          
-          // Show professional courtesy message for declined calls
-          if (message.type === 'CALL_DECLINED') {
-            const participantName = message.declinedBy?.name || callData?.participantName || 'The other party';
-            alert(`${participantName} is currently busy and unable to take your call.`);
-          } else if (message.type === 'CALL_TIMEOUT') {
-            alert(`${callData?.participantName || 'The other party'} did not answer the call.`);
-          }
-          
-          endCallContext();
-          router.push('/chat');
-        }
-      } catch (error) {
-        console.error('[GlobalCallRoom] Failed to parse WebSocket message:', error);
-      }
-    };
-
-    // Fallback: Poll call status every 2 seconds
-    const pollInterval = setInterval(async () => {
-      try {
-        const data = await getCall(callId);
-        
-        if (data.status === 'declined' || data.status === 'ended' || data.status === 'missed' || data.status === 'timeout') {
-          clearInterval(pollInterval);
-          
-          // Show professional courtesy message
-          if (data.status === 'declined') {
-            alert(`${data.participantName || 'The other party'} is currently busy and unable to take your call.`);
-          } else if (data.status === 'timeout' || data.status === 'missed') {
-            alert(`${data.participantName || 'The other party'} did not answer the call.`);
-          }
-          
-          endCallContext();
-          router.push('/chat');
-        }
-      } catch (err) {
-        // If call not found, end it
-        clearInterval(pollInterval);
-        endCallContext();
-        router.push('/chat');
-      }
-    }, 2000);
-
-    return () => {
-      clearInterval(pollInterval);
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
-    };
-  }, [callId, identity?.id, endCallContext, router, callData?.participantName]);
-
-  const handleEndCall = async () => {
-    // Play call-end sound
+  // ── End call handler ─────────────────────────────────────────────
+  const handleEndCall = useCallback(async () => {
     console.log('[GlobalCallRoom] 🔊 Playing call-end sound (user ended call)');
     playSound('call-end');
-    
-    // Import and call endCall API
+
     try {
       const { endCall: endCallApi } = await import('../services/callApi');
       await endCallApi(callId!);
     } catch (err) {
       console.error('[GlobalCallRoom] Failed to end call:', err);
     } finally {
-      // Always clear context and navigate
       endCallContext();
-      if (callData?.conversationId) {
-        router.push(`/chat?conversationId=${callData.conversationId}`);
-      } else {
-        router.push('/chat');
-      }
+      const chatUrl = conversationId
+        ? `/chat?conversationId=${conversationId}`
+        : '/chat';
+      router.push(chatUrl);
     }
-  };
+  }, [callId, endCallContext, conversationId, router, playSound]);
 
-  // Don't render anything if no active call
-  if (!callId || !callData || loading) {
+  // ── Render nothing when there is no active call data ─────────────
+  if (!callId || !roomName || !liveKitToken) {
     return null;
   }
 
-  // Determine if we should show the call UI
-  // Hide if minimized
   const shouldShowCallUI = !isMinimized;
 
   return (
@@ -187,10 +91,7 @@ export default function GlobalCallRoom() {
         shouldShowCallUI ? 'block' : 'hidden'
       }`}
     >
-      <CallShell
-        roomName={callData.roomName}
-        liveKitToken={callData.liveKitToken}
-      >
+      <CallShell roomName={roomName} liveKitToken={liveKitToken}>
         {callType === 'audio' ? (
           <AudioCallPage onEndCall={handleEndCall} />
         ) : (

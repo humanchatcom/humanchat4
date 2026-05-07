@@ -205,6 +205,7 @@ router.get(
         roomName,
         userId,
         userName: req.user!.email || 'User',
+        callId,
       });
 
       // Calculate current duration if connected

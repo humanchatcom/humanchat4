@@ -9,6 +9,7 @@ export interface GenerateTokenOptions {
   roomName: string;
   userId: string;
   userName: string;
+  callId?: string;
   canPublish?: boolean;
   canSubscribe?: boolean;
   canPublishData?: boolean;
@@ -23,6 +24,7 @@ export async function generateLiveKitToken(options: GenerateTokenOptions): Promi
     roomName,
     userId,
     userName,
+    callId,
     canPublish = true,
     canSubscribe = true,
     canPublishData = true,
@@ -42,9 +44,9 @@ export async function generateLiveKitToken(options: GenerateTokenOptions): Promi
     hasSecret: !!env.liveKitApiSecret,
   });
 
-  // Add unique suffix to prevent duplicate identity errors
-  // LiveKit rejects connections with the same identity in the same room
-  const uniqueIdentity = `${userId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  // Use deterministic identity: stable per user per call so reconnections
+  // reuse the same participant slot instead of creating duplicates
+  const uniqueIdentity = callId ? `${userId}_${callId}` : userId;
 
   const at = new AccessToken(env.liveKitApiKey, env.liveKitApiSecret, {
     identity: uniqueIdentity,

@@ -1,13 +1,18 @@
 /**
  * Listens for incoming call notifications via WebSocket
  * Shows IncomingCallModal when a call is received
+ *
+ * Also handles active-call events (CALL_DECLINED / CALL_ENDED /
+ * CALL_TIMEOUT) so GlobalCallRoom no longer needs its own WebSocket.
  */
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import IncomingCallModal from './IncomingCallModal';
 import { sessionStatusManager } from '../services/sessionStatusManager';
+import { useCallContext } from '../context/CallContext';
 
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4000';
 
@@ -26,6 +31,21 @@ interface CallRingingMessage {
 
 export default function CallNotificationListener() {
   const [incomingCall, setIncomingCall] = useState<CallRingingMessage | null>(null);
+  const { callId: activeCallId, endCall: endCallContext, participantName } = useCallContext();
+  const router = useRouter();
+
+  // Keep a mutable ref so the WS handler always sees the latest active callId
+  // without needing to tear down / recreate the socket on every change.
+  const activeCallIdRef = useRef<string | null>(null);
+  const participantNameRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeCallIdRef.current = activeCallId;
+  }, [activeCallId]);
+
+  useEffect(() => {
+    participantNameRef.current = participantName;
+  }, [participantName]);
 
   useEffect(() => {
     // Get current user ID from sessionStatusManager
@@ -52,17 +72,34 @@ export default function CallNotificationListener() {
 
         if (message.type === 'CALL_RINGING') {
           console.log('[CallListener] 📞 INCOMING CALL from:', message.caller.name);
-          console.log('[CallListener] Setting incoming call state...');
           setIncomingCall(message as CallRingingMessage);
-        } else if (message.type === 'CALL_DECLINED' || message.type === 'CALL_ENDED' || message.type === 'CALL_TIMEOUT') {
-          console.log('[CallListener] Call ended/declined/timeout:', message.type);
-          // Clear incoming call modal
+          return;
+        }
+
+        // ── Active-call event handling (consolidated from GlobalCallRoom) ──
+        const isActiveCallEvent =
+          message.type === 'CALL_DECLINED' ||
+          message.type === 'CALL_ENDED' ||
+          message.type === 'CALL_TIMEOUT';
+
+        if (isActiveCallEvent) {
+          console.log('[CallListener] Call event:', message.type);
+
+          // Clear any incoming-call modal
           setIncomingCall(null);
-          
-          // If user is in an active call, force disconnect
-          if (message.type === 'CALL_ENDED' && window.location.pathname.includes('/call/')) {
-            console.log('[CallListener] Forcing disconnect from active call');
-            window.location.href = '/chat';
+
+          // If this event targets the current active call, end it in context
+          if (message.callId && message.callId === activeCallIdRef.current) {
+            if (message.type === 'CALL_DECLINED') {
+              const name = message.declinedBy?.name || participantNameRef.current || 'The other party';
+              alert(`${name} is currently busy and unable to take your call.`);
+            } else if (message.type === 'CALL_TIMEOUT') {
+              const name = participantNameRef.current || 'The other party';
+              alert(`${name} did not answer the call.`);
+            }
+
+            endCallContext();
+            router.push('/chat');
           }
         }
       } catch (error) {
@@ -83,7 +120,8 @@ export default function CallNotificationListener() {
         ws.close();
       }
     };
-  }, []); // Run once on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Single socket for the session lifetime; refs track mutable state
 
   const handleDismiss = () => {
     setIncomingCall(null);

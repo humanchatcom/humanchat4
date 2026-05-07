@@ -45,6 +45,9 @@ export default function CallPageV2() {
           participantName: data.participantName || 'User',
           participantAvatar: data.participantAvatar,
           returnUrl: `/chat${data.conversationId ? `?conversationId=${data.conversationId}` : ''}`,
+          roomName: data.roomName,
+          liveKitToken: data.liveKitToken,
+          isHost: data.isHost ?? false,
         });
         
       } catch (err: any) {
