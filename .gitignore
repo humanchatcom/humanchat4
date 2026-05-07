@@ -46,3 +46,4 @@ cloud-sql-proxy.exe
 !openapi.yaml
 .env.cloudrun*
 apps/web/.env.vercel*
+.vercel
